@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        .page{
+            display: flex;
+            flex-direction: row;
+            justify-content: space-around;
+        }
+        .left{
+            display: flex;
+            flex-direction: column;
+        }
+        #videoPlayer{
+            height: 350px;
+            width: 600px;
+        }
+        .add{
+            width: 80px;
+            height: 30px;
+            background-color: rgb(73, 113, 254);
+            border: none;
+            border-radius: 3px;
+            margin-top: 5px;
+        }
+        #videoInput{
+            margin-top: 10px;
+        }
+        .devider{
+            height: auto;
+            width: 2px;
+            background: gray;
+            margin-left: 30px;
+            margin-right: 30px;
+        }
+        #right{
+            height: auto;
+            width: 600px;
+            border: 1px solid rgb(146, 146, 146);
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <div class="left">
+    <video id="videoPlayer" controls width="600">
+        Your browser does not support the video tag.
+    </video>
+    <input type="file" id="videoInput">
+    <button class="add" onclick="addVideo()">Add Video</button>
+
+    </div>
+
+     <div class="devider"></div>
+ 
+     <div id="right"></div>
+</div>
+    <script>
+        const request = indexedDB.open("videoDatabase", 1);
+
+request.onupgradeneeded = (event) => {
+    const db = event.target.result;
+    db.createObjectStore("videos", { keyPath: "id" });
+};
+
+request.onsuccess = (event) => {
+    console.log("Database opened successfully.");
+    const db = event.target.result;
+
+    loadThumbnails(db);
+};
+
+function addVideo() {
+    const hold = document.getElementById("videoInput");
+    const file = hold.files[0];
+
+    if (file) {
+        const db = request.result;
+        const transaction = db.transaction("videos", "readwrite");
+        const store = transaction.objectStore("videos");
+
+        const randomId = `myvideo_${Date.now()}`;
+        store.put({ id: randomId, blob: file });
+
+        transaction.oncomplete = () => {
+            console.log("Video saved to IndexedDB");
+            generateThumbnail(file, randomId);
+        };
+
+        transaction.onerror = (error) => {
+            console.error("Error saving video", error);
+        };
+    }
+}
+
+function generateThumbnail(blob, videoID) {
+    const url = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const container = document.getElementById("right");
+
+    video.src = url;
+
+    video.addEventListener("loadeddata", () => {
+        video.currentTime = 1;
+    });
+
+    video.addEventListener("seeked", () => {
+        canvas.width = 100;
+        canvas.height = 70;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const img = document.createElement("img");
+        img.src = canvas.toDataURL("image/png");
+        img.setAttribute('data-video-id', videoID);
+        img.style.cursor = 'pointer';
+        img.style.margin = '5px';
+        container.appendChild(img);
+        container.appendChild(document.createElement("br"));
+
+        img.addEventListener("click", () => {
+            playVideoById(videoID);
+        });
+    });
+
+    video.onerror = () => {
+        console.error("Failed to load video.");
+    };
+}
+
+function playVideoById(videoId) {
+    const db = request.result;
+    const transaction = db.transaction("videos", "readonly");
+    const store = transaction.objectStore("videos");
+    const videoRequest = store.get(videoId);
+
+    videoRequest.onsuccess = function () {
+        const result = videoRequest.result;
+        if (result) {
+            const videoPlayer = document.getElementById("videoPlayer");
+            const videoBlob = result.blob;
+            const videoUrl = URL.createObjectURL(videoBlob);
+            videoPlayer.src = videoUrl;
+            videoPlayer.play();
+        } else {
+            console.log("Video not found.");
+        }
+    };
+
+    videoRequest.onerror = function () {
+        console.log("Error fetching video.");
+    };
+}
+
+function loadThumbnails(db) {
+   
+    const transaction = db.transaction("videos", "readonly");
+    const store = transaction.objectStore("videos");
+
+    const requestAll = store.getAll();
+    const container = document.getElementById("right");
+
+    requestAll.onsuccess = (event) => {
+        const videos = event.target.result;
+        videos.forEach((video) => {
+            generateThumbnail(video.blob, video.id);
+        });
+    };
+
+    requestAll.onerror = () => {
+        console.error("Error loading thumbnails.");
+    };
+}
+    </script>
+</body>
+</html>
